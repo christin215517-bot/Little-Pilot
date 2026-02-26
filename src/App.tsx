@@ -102,6 +102,9 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   
+  // Track current flight session to prevent race conditions in background loading
+  const flightSessionRef = React.useRef(0);
+  
   const [stats, setStats] = useState<UserStats>(() => {
     const saved = localStorage.getItem('pilot_stats');
     return saved ? JSON.parse(saved) : { flightCount: 0, visitedCities: [] };
@@ -182,9 +185,16 @@ export default function App() {
     setView('story');
     setCurrentPage(0);
     
+    // Increment session ID to cancel any previous background loading
+    const currentSessionId = ++flightSessionRef.current;
+    
     const planeName = isExpertMode ? selectedPlane.realName : selectedPlane.childName;
     const generatedStory = await generateStory(planeName, selectedCity.name, selectedWords);
-    const pages = generatedStory.split('\n').filter(p => p.trim());
+    
+    // Safety check: if user left the story view while generating
+    if (flightSessionRef.current !== currentSessionId) return;
+
+    const pages = generatedStory.split('\n').filter(p => p.trim()).slice(0, 5);
     setStoryPages(pages);
     
     // Update stats
@@ -201,6 +211,9 @@ export default function App() {
       generateSpeech(pages[0])
     ]);
     
+    // Final session check before setting initial state
+    if (flightSessionRef.current !== currentSessionId) return;
+
     setStoryImages([firstImg]);
     setStoryAudios([firstAud]);
     setIsGenerating(false);
@@ -218,12 +231,26 @@ export default function App() {
         generateStoryImage(pages[i], selectedCity.name),
         generateSpeech(pages[i])
       ]);
-      setStoryImages(prev => [...prev, img]);
-      setStoryAudios(prev => [...prev, aud]);
+      
+      // ONLY update if we are still in the same flight session
+      if (flightSessionRef.current === currentSessionId) {
+        setStoryImages(prev => {
+          // Double check we aren't appending to a different flight's data
+          if (prev.length === i) return [...prev, img];
+          return prev;
+        });
+        setStoryAudios(prev => {
+          if (prev.length === i) return [...prev, aud];
+          return prev;
+        });
+      } else {
+        break; // Stop background loading if session changed
+      }
     }
   };
 
   const resetFlight = () => {
+    flightSessionRef.current++; // Cancel any pending background tasks
     audioService.stopAll();
     setSelectedPlane(null);
     setSelectedCity(null);
