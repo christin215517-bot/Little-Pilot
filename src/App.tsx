@@ -195,25 +195,31 @@ export default function App() {
         : [...prev.visitedCities, selectedCity.id]
     }));
 
-    // Generate images and audio for each page in parallel
-    const [images, audios] = await Promise.all([
-      Promise.all(pages.map(page => generateStoryImage(page, selectedCity.name))),
-      Promise.all(pages.map(page => generateSpeech(page)))
+    // Generate first page immediately to show the story quickly
+    const [firstImg, firstAud] = await Promise.all([
+      generateStoryImage(pages[0], selectedCity.name),
+      generateSpeech(pages[0])
     ]);
     
-    setStoryImages(images);
-    setStoryAudios(audios);
-    
+    setStoryImages([firstImg]);
+    setStoryAudios([firstAud]);
     setIsGenerating(false);
     
-    // Auto-read first page with human-like voice
-    if (pages.length > 0) {
-      const firstAudio = audios[0];
-      if (firstAudio) {
-        audioService.playAudioUrl(firstAudio);
-      } else {
-        audioService.speak(pages[0]);
-      }
+    // Auto-read first page
+    if (firstAud) {
+      audioService.playAudioUrl(firstAud);
+    } else {
+      audioService.speak(pages[0]);
+    }
+
+    // Generate the rest of the pages in the background
+    for (let i = 1; i < pages.length; i++) {
+      const [img, aud] = await Promise.all([
+        generateStoryImage(pages[i], selectedCity.name),
+        generateSpeech(pages[i])
+      ]);
+      setStoryImages(prev => [...prev, img]);
+      setStoryAudios(prev => [...prev, aud]);
     }
   };
 
@@ -641,6 +647,7 @@ export default function App() {
 
               {currentPage < storyPages.length - 1 ? (
                 <Button 
+                  disabled={storyImages.length <= currentPage + 1}
                   onClick={() => {
                     const nextPage = currentPage + 1;
                     setCurrentPage(nextPage);
@@ -653,7 +660,8 @@ export default function App() {
                   }}
                   className="px-10 py-4 text-xl shadow-[0_8px_0_rgb(67,56,202)]"
                 >
-                  Next <ChevronRight className="w-8 h-8" />
+                  {storyImages.length <= currentPage + 1 ? 'Loading...' : 'Next'} 
+                  {storyImages.length <= currentPage + 1 ? null : <ChevronRight className="w-8 h-8" />}
                 </Button>
               ) : (
                 <Button 

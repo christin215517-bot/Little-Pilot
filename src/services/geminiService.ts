@@ -10,33 +10,50 @@ function getAI() {
 
 export async function generateStory(planeName: string, cityName: string, words: string[]) {
   const prompt = `
-    You are a storyteller for toddlers (age 2-4). Write a very simple 5-page picture book story.
+    You are a creative storyteller for toddlers (age 2-4). Write a very simple 5-page picture book story about a pilot and their plane.
+    
+    Context:
+    - Plane: ${planeName}
+    - Destination: ${cityName}
+    - Magic objects to find: ${words[0]} and ${words[1]}
     
     Rules:
     1. Exactly 5 pages.
     2. Each page is one very short, grammatically correct sentence (max 5 words).
     3. Use extremely simple, common words for toddlers.
-    4. Ensure sentences are complete and natural (e.g., "I see a red bird" instead of just "Red bird").
-    5. Structure:
-       - Page 1: Look at the ${planeName}!
-       - Page 2: We fly to ${cityName}.
-       - Page 3: I see a ${words[0]}.
-       - Page 4: I see a ${words[1]}.
-       - Page 5: The pilot is happy!
+    4. Ensure sentences are complete and natural.
+    5. The story MUST include the plane name, the city name, and both magic objects.
     
-    Output ONLY the story text, each page on a new line. No page numbers, no markdown.
+    Structure:
+    - Page 1: Introduction of the ${planeName}.
+    - Page 2: Traveling to ${cityName}.
+    - Page 3: Finding the ${words[0]}.
+    - Page 4: Finding the ${words[1]}.
+    - Page 5: A happy ending for the pilot.
+    
+    Output ONLY the story text, each page on a new line. No page numbers, no markdown, no titles.
   `;
 
   try {
     const ai = getAI();
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
+      model: "gemini-flash-latest", // Using the stable latest flash model
+      contents: [{ parts: [{ text: prompt }] }],
+      config: {
+        temperature: 0.8, // Add some variety
+      }
     });
-    return response.text || "Look at the plane.\nWe fly to the city.\nI see a cloud.\nI see the sun.\nThe pilot is happy.";
+    
+    const text = response.text?.trim();
+    if (text && text.split('\n').length >= 3) {
+      return text;
+    }
+    
+    throw new Error("Invalid response format");
   } catch (error) {
     console.error("Error generating story:", error);
-    return "Look at the plane.\nWe fly to the city.\nI see a cloud.\nI see the sun.\nThe pilot is happy.";
+    // Dynamic fallback so it's not always the same even on failure
+    return `Look at the ${planeName}!\nWe fly to ${cityName}.\nI see a ${words[0]}.\nI see a ${words[1]}.\nThe pilot is happy!`;
   }
 }
 
@@ -57,21 +74,28 @@ export async function generateStoryImage(sentence: string, cityName: string) {
     });
 
     const timeoutPromise = new Promise<null>((_, reject) => 
-      setTimeout(() => reject(new Error("Timeout")), 15000)
+      setTimeout(() => reject(new Error("Timeout")), 30000) // Increased to 30s
     );
 
     const response = await Promise.race([imagePromise, timeoutPromise]);
 
-    if (!response) return `https://picsum.photos/seed/${encodeURIComponent(sentence)}/800/600`;
+    if (!response || !response.candidates?.[0]?.content?.parts) {
+      return `https://picsum.photos/seed/${encodeURIComponent(sentence)}/800/600`;
+    }
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
+    for (const part of response.candidates[0].content.parts) {
       if (part.inlineData) {
         return `data:image/png;base64,${part.inlineData.data}`;
       }
     }
     return `https://picsum.photos/seed/${encodeURIComponent(sentence)}/800/600`;
   } catch (error) {
-    console.error("Error generating image:", error);
+    // If it's a timeout, we still return the fallback but maybe log it differently
+    if (error instanceof Error && error.message === "Timeout") {
+      console.warn("Image generation timed out, using fallback.");
+    } else {
+      console.error("Error generating image:", error);
+    }
     return `https://picsum.photos/seed/${encodeURIComponent(sentence)}/800/600`;
   }
 }
